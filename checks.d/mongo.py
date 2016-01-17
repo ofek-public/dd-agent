@@ -521,9 +521,16 @@ class MongoDb(AgentCheck):
                 "port:%s" % port
             ]
 
+        auth_mechanism = instance.get('auth_mechanism', 'DEFAULT')
+        # auth_username overrides username
+        username = instance.get('auth_username', username)
+        self.log.info("Mongo: using mechanism %s with user %s" % (auth_mechanism, username))
+
         do_auth = True
-        if username is None or password is None:
-            self.log.debug("Mongo: cannot extract username and password from config %s" % server)
+        if (auth_mechanism == 'DEFAULT' and \
+                (username is None or password is None)) or \
+           (auth_mechanism == 'MONGODB-X509' and username is None):
+            self.log.warn("Mongo: authentication disabled")
             do_auth = False
 
         timeout = float(instance.get('timeout', DEFAULT_TIMEOUT)) * 1000
@@ -543,7 +550,9 @@ class MongoDb(AgentCheck):
                 tags=service_check_tags)
             raise
 
-        if do_auth and not db.authenticate(username, password):
+        self.log.info("XXXXXXX: before auth: %s" % str(do_auth))
+        if do_auth and not db.authenticate(username, password, mechanism=auth_mechanism):
+            self.log.info("XXXXXXX: do auth failed")
             message = "Mongo: cannot connect with config %s" % server
             self.service_check(
                 self.SERVICE_CHECK_NAME,
@@ -587,7 +596,7 @@ class MongoDb(AgentCheck):
                     **ssl_params)
                 db = cli[db_name]
 
-                if do_auth and not db.authenticate(username, password):
+                if do_auth and not db.authenticate(username, password, mechanism=auth_mechanism):
                     message = ("Mongo: cannot connect with config %s" % server)
                     self.service_check(
                         self.SERVICE_CHECK_NAME,
